@@ -1,19 +1,20 @@
 """
-知识蒸馏训练配置文件（Pruned30）。目标：相对 Stage1 COCO 基线精度损失 <= 2%。
+Stage 3: 跨架构 CNN 剪枝+蒸馏并行优化
+- 教师模型: PoseBH-B (ViT-MoE)
+- 学生模型: HRNet-W32 (CNN)
+- 方案: 原型对齐知识蒸馏
 """
 _base_ = [
     '../../configs/_base_/default_runtime.py',
     '../../configs/_base_/datasets/coco.py'
 ]
 import sys
-sys.path.insert(0, './experiments/CUT')
 sys.path.insert(0, './experiments/DIST')
 
 custom_imports = dict(
     imports=[
-        'experiments.CUT.vitmoe_prunable',
         'experiments.DIST.kd_model',
-        'experiments.CUT.custom_hooks'
+        'experiments.DIST.custom_hooks'
     ],
     allow_failed_imports=False
 )
@@ -21,21 +22,8 @@ custom_imports = dict(
 evaluation = dict(interval=10, metric='mAP', save_best='AP')
 
 optimizer = dict(
-    type='AdamW',
-    lr=2e-5,
-    betas=(0.9, 0.999),
-    weight_decay=0.1,
-    constructor='LayerDecayOptimizerConstructor',
-    paramwise_cfg=dict(
-        num_layers=12,
-        layer_decay_rate=0.75,
-        custom_keys={
-            'bias': dict(decay_multi=0.0),
-            'pos_embed': dict(decay_mult=0.0),
-            'relative_position_bias_table': dict(decay_mult=0.0),
-            'norm': dict(decay_mult=0.0),
-        },
-    ),
+    type='Adam',
+    lr=5e-4,
 )
 optimizer_config = dict(grad_clip=dict(max_norm=1.0, norm_type=2))
 
@@ -152,47 +140,44 @@ teacher_cfg = dict(
         modulate=False,
         use_udp=True))
 
-mlp_hidden_dims = [3072, 3072, 3072, 3072, 2688, 2688, 2688, 2688, 2304, 2304, 2304, 2304]
-
 student_cfg = dict(
-    type='TopDownMoEProto',
-    pretrained=None,
-    multihead_pretrained='experiments/CUT/work_dirs/pruned30_coco_finetune/best_AP_epoch_10.pth',
+    type='TopDown',
+    pretrained='https://download.openmmlab.com/mmpose/pretrain_models/hrnet_w32-36af842e.pth',
     backbone=dict(
-        type='ViTMoEPrunable',
-        img_size=(256, 192),
-        patch_size=16,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        ratio=1,
-        use_checkpoint=False,
-        mlp_ratio=4,
-        qkv_bias=True,
-        drop_path_rate=0.3,
-        num_expert=6,
-        part_features=192,
-        mlp_hidden_dims=mlp_hidden_dims,
+        type='HRNet',
+        in_channels=3,
+        extra=dict(
+            stage1=dict(
+                num_modules=1,
+                num_branches=1,
+                block='BOTTLENECK',
+                num_blocks=(4,),
+                num_channels=(64,)),
+            stage2=dict(
+                num_modules=1,
+                num_branches=2,
+                block='BASIC',
+                num_blocks=(4, 4),
+                num_channels=(32, 64)),
+            stage3=dict(
+                num_modules=4,
+                num_branches=3,
+                block='BASIC',
+                num_blocks=(4, 4, 4),
+                num_channels=(32, 64, 128)),
+            stage4=dict(
+                num_modules=3,
+                num_branches=4,
+                block='BASIC',
+                num_blocks=(4, 4, 4, 4),
+                num_channels=(32, 64, 128, 256))),
     ),
     keypoint_head=dict(
         type='TopdownHeatmapSimpleHead',
-        in_channels=768,
-        num_deconv_layers=2,
-        num_deconv_filters=(256, 256),
-        num_deconv_kernels=(4, 4),
-        extra=dict(final_conv_kernel=1, ),
+        in_channels=32,
+        num_deconv_layers=0,
         out_channels=channel_cfg['num_output_channels'],
         loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True)),
-    proto_head=dict(
-        type='KptProtoHead',
-        in_channels=768,
-        out_channels=channel_cfg['num_output_channels'],
-        num_deconv_layers=2,
-        num_deconv_filters=(256, 256),
-        num_deconv_kernels=(4, 4),
-        extra=proto_extra,
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True),
-    ),
     train_cfg=dict(),
     test_cfg=dict(
         flip_test=True,
@@ -208,7 +193,7 @@ model = dict(
     teacher=teacher_cfg,
     teacher_ckpt='weights/posebh/base.pth',
     kd_hm_weight=0.5,
-    kd_proto_weight=0.3,
+    kd_proto_weight=0.0,
     kd_warmup_iters=2000,
     kd_hm_conf_power=1.5,
     kd_proto_cos_weight=0.5,
@@ -295,12 +280,11 @@ data = dict(
         dataset_info={{_base_.dataset_info}}),
 )
 
-work_dir = 'experiments/DIST/work_dirs/pruned30_distill_coco'
+work_dir = 'experiments/DIST/work_dirs/hrnet_distill_coco'
 fp16 = dict(loss_scale=512.)
 
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(interval=10)
 custom_hooks = [
-    dict(type='KeepMultiplesOfTenCheckpointHook', keep_interval=10),
     dict(type='FPSBenchmarkHook', interval=10, num_warmup=2, num_iters=10, log_key='fps_val'),
     dict(type='EarlyStopByAPHook', baseline_ap=0.7728, target_loss_pct=2.0, min_delta=0.001, patience=2, interval=10, monitor='AP')
 ]

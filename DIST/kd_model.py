@@ -95,7 +95,17 @@ class TopDownMoEProtoKD(BasePose):
             # 获取图像对应的数据集来源，用于 MoE 路由
             img_sources = torch.from_numpy(np.array([ele['dataset_idx'] for ele in img_metas])).to(img.device)
             # 提取主干网络特征
-            t_output = self.teacher.backbone(img, img_sources)
+            # 检查教师模型的 backbone 是否需要 img_sources
+            if hasattr(self.teacher.backbone, 'forward') and callable(getattr(self.teacher.backbone, 'forward')):
+                import inspect
+                sig = inspect.signature(self.teacher.backbone.forward)
+                if 'img_sources' in sig.parameters or len(sig.parameters) > 1:
+                    t_output = self.teacher.backbone(img, img_sources)
+                else:
+                    t_output = self.teacher.backbone(img)
+            else:
+                t_output = self.teacher.backbone(img)
+                
             if hasattr(self.teacher, 'neck') and self.teacher.with_neck:
                 t_output = self.teacher.neck(t_output)
             # 提取教师模型的热力图特征
@@ -103,13 +113,19 @@ class TopDownMoEProtoKD(BasePose):
             t_proto_out = None
             # 提取教师模型的原型特征
             if getattr(self.teacher, 'proto_head', None) is not None:
-                t_proto_out = self.teacher.proto_head(t_output, [t_hm], img_sources)
+                try:
+                    t_proto_out = self.teacher.proto_head(t_output, [t_hm], img_sources)
+                except Exception as e:
+                    try:
+                        t_proto_out = self.teacher.proto_head(t_output)
+                    except:
+                        pass
             
         kd_scale = self._kd_scale()
 
         # 3. 计算蒸馏损失 (KD losses)
         # 3.1 热力图蒸馏：空间标准化 + 置信度加权 SmoothL1，提升稳定性
-        if self.s_hm is not None:
+        if self.s_hm is not None and t_hm is not None:
             with torch.cuda.amp.autocast(enabled=False):
                 s_hm = self._spatial_standardize(self.s_hm.float())
                 t_hm = self._spatial_standardize(t_hm.float())
@@ -124,7 +140,7 @@ class TopDownMoEProtoKD(BasePose):
                 losses['kd_hm_loss'] = (self.kd_hm_weight * kd_scale) * hm_loss
         
         # 3.2 原型蒸馏：L2 归一化 + (MSE + Cosine) 混合目标
-        if self.s_proto_out is not None:
+        if self.s_proto_out is not None and t_proto_out is not None and self.kd_proto_weight > 0:
             with torch.cuda.amp.autocast(enabled=False):
                 s_proto_norm = F.normalize(self.s_proto_out.float(), p=2, dim=1)
                 t_proto_norm = F.normalize(t_proto_out.float(), p=2, dim=1)
