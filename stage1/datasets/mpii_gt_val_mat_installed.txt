@@ -1,0 +1,1 @@
+-rw-rw-r-- 1 lin lin 1.2M  8月 26  2018 /home/lin/PoseBH/preprocess/mpii/annotations/mpii_gt_val.mat

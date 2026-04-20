@@ -1,0 +1,11 @@
+dataset,metric,official,measured,delta,protocol,log_path
+COCO val2017,AP,77.3,77.27991622424109,-0.02008377575890563,"Top-down, person detections (56 mAP person detector), 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/06_coco_test.log
+COCO val2017,AR,82.4,82.43545340050377,0.03545340050376922,"Top-down, person detections (56 mAP person detector), 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/06_coco_test.log
+OCHuman test,AP,83.1,83.14329645397743,0.0432964539774332,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/03_ochuman_test.log
+OCHuman test,AR,85.1,85.06677140612726,-0.033228593872735246,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/03_ochuman_test.log
+MPII val,PCKh,93.2,93.17980744210251,-0.020192557897487973,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/02_mpii_test.log
+MPII val,PCKh@0.1,39.3,39.30523034005682,0.005230340056826321,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/02_mpii_test.log
+AP-10K test (split1),AP,75.0,75.01519410916143,0.015194109161427605,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/04_ap10k_test.log
+AP-10K test (split1),AR,78.3,78.27433379738466,-0.025666202615340694,"Top-down, ground-truth bounding boxes, 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/04_ap10k_test.log
+COCO-WholeBody val,AP,57.9,57.90356808882752,0.00356808882752091,"Top-down, person detections (COCO val2017 detections), 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/05_wholebody_test.log
+COCO-WholeBody val,AR,69.5,69.50251889168764,0.0025188916876430767,"Top-down, person detections (COCO val2017 detections), 256x192",/home/lin/PoseBH/experiments/stage1/baseline/logs/05_wholebody_test.log
