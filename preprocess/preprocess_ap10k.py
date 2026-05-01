@@ -1,6 +1,3 @@
-"""
-AP-10K 动物姿态估计数据集预处理脚本。将标注文件转换为通用的评估格式。
-"""
 import argparse
 import os
 import shutil

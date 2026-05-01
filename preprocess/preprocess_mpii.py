@@ -1,6 +1,3 @@
-"""
-MPII 人体姿态估计数据集预处理脚本。处理 .mat 标注文件，准备 MPII 的 GT 测试集格式。
-"""
 import argparse
 import json
 import os

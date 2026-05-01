@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-# Stage 2: Pruned40 微调脚本
-# 目标：生成 best_AP_epoch_*.pth
-
 set -euo pipefail
 
 source /opt/conda/etc/profile.d/conda.sh

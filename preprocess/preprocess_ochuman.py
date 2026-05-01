@@ -1,6 +1,3 @@
-"""
-OCHuman 数据集预处理脚本。用于处理遮挡严重的人体姿态估计数据集，以供后续测试评估。
-"""
 import argparse
 import shutil
 import zipfile

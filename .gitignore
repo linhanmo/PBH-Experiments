@@ -6,7 +6,7 @@
 work_dirs/**/*.pth
 weights/*.pth
 split_weights/*.pth
-
+hrnet_w32_distill_prune_coco_256x192/
 # Python caches
 __pycache__/
 *.pyc

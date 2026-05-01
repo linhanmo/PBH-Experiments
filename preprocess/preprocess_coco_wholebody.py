@@ -1,6 +1,3 @@
-"""
-COCO-WholeBody 数据集预处理脚本。处理全身关键点标注，生成用于评估面部、手部及全身关键点的标注文件。
-"""
 import argparse
 import os
 import shutil

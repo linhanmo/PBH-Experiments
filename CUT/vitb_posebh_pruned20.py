@@ -1,7 +1,3 @@
-"""
-Pruned20 剪枝配置文件。
-目标：生成 pruned20_base_init.pth
-"""
 _base_ = [
     '../../configs/_base_/default_runtime.py',
     '../../configs/_base_/datasets/coco.py'

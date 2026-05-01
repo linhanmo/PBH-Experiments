@@ -1,6 +1,3 @@
-"""
-剪枝主入口脚本。
-"""
 import argparse
 import os
 import sys
@@ -23,9 +20,6 @@ def parse_args():
 
 
 def prune_mlp_hidden_dims(state_dict, mlp_hidden_dims, original_mlp_ratio=4):
-    """
-    根据目标 mlp_hidden_dims 剪枝 MLP 权重。
-    """
     embed_dim = 768
     new_state_dict = {}
 
@@ -36,16 +30,12 @@ def prune_mlp_hidden_dims(state_dict, mlp_hidden_dims, original_mlp_ratio=4):
             block_idx = int(parts[blocks_idx + 1])
 
             if 'gate' in key:
-                # gate 权重不剪枝，直接复制
                 new_state_dict[key] = value
             elif 'experts' in key:
-                # 专家权重需要剪枝输入维度
                 target_dim = mlp_hidden_dims[block_idx]
                 if 'weight' in key:
-                    # experts.*.weight: [192, 3072] -> [192, target_dim]
                     new_state_dict[key] = value[:, :target_dim].clone()
                 elif 'bias' in key:
-                    # experts.*.bias: [192] 不剪枝
                     new_state_dict[key] = value
                 else:
                     new_state_dict[key] = value
@@ -71,13 +61,9 @@ def prune_mlp_hidden_dims(state_dict, mlp_hidden_dims, original_mlp_ratio=4):
 
 
 def extract_backbone_state_dict(full_state_dict):
-    """
-    从完整模型的state_dict中提取仅backbone的部分。
-    """
     backbone_state_dict = {}
     for key, value in full_state_dict.items():
         if key.startswith('backbone.'):
-            # 移除 'backbone.' 前缀
             new_key = key[len('backbone.'):]
             backbone_state_dict[new_key] = value
     return backbone_state_dict
@@ -99,7 +85,6 @@ def main():
     new_mlp_hidden_dims = cfg.get('mlp_hidden_dims', None)
     if new_mlp_hidden_dims is None:
         print("No mlp_hidden_dims specified in config, skipping prune.")
-        # 提取backbone权重并保存
         backbone_dict = extract_backbone_state_dict(state_dict)
         torch.save(backbone_dict, args.save_weights)
         return
@@ -108,7 +93,6 @@ def main():
 
     pruned_state_dict = prune_mlp_hidden_dims(state_dict, new_mlp_hidden_dims)
     
-    # 只提取backbone权重
     backbone_state_dict = extract_backbone_state_dict(pruned_state_dict)
 
     os.makedirs(os.path.dirname(args.save_weights), exist_ok=True)

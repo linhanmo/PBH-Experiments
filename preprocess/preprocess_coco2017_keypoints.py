@@ -1,6 +1,3 @@
-"""
-COCO 2017 Keypoints 数据集预处理脚本。处理原始标注文件，准备模型训练/评估所需的格式。
-"""
 import argparse
 import json
 import os

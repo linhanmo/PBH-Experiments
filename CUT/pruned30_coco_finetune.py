@@ -1,6 +1,3 @@
-"""
-Pruned30 微调配置文件。
-"""
 _base_ = [
     '../../configs/_base_/default_runtime.py',
     '../../configs/_base_/datasets/coco.py'

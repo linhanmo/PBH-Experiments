@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-# Stage 2: Pruned30 剪枝脚本
-# 目标：生成 pruned30_base_init.pth
-
 set -euo pipefail
 
 source /opt/conda/etc/profile.d/conda.sh

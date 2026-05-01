@@ -105,9 +105,71 @@
   - 对 HRNet 骨干同时进行结构化剪枝和原型对齐蒸馏
   - 剪枝与蒸馏并行进行，实现端到端的轻量化
 - **知识蒸馏机制**：
-  - 使用 PyTorch Hook 机制截取教师与学生的中间特征
-  - 通过特征热力图 MSE 和原型 (Prototype) 输出 MSE 进行联合对齐
-- **目标**：同时满足「相对基线精度损失≤2%」和「参数量下降≥50%」双目标
+  - 热图蒸馏：KL（空间 softmax，对齐热图分布）
+  - 原型蒸馏：MSE（教师 proto 与学生特征经 1×1 对齐层后的 proto 对齐）
+- **剪枝策略**：
+  - 仅剪中高层：`prune_stages=(3,4)`，Stage1/2 完全不剪
+  - 结构化通道剪枝：基于重要性（默认 BN gamma，可切换 conv L1）选择通道并做一致性裁剪（transition / fuse_layers）
+  - 触发时机：从 epoch30 开始，每 10 epoch 一次；剪枝点执行 `val(pre-prune) -> prune -> val(post-prune)`
+- **目标**：最终剪枝率 40%~50%，COCO val2017 关键点检测 AP ≥ AP_base * 0.98（示例 0.7573）
+
+#### 当前实现状态（2026-04）
+
+本阶段已实现并验证跑通的模块：
+
+- **可复现训练入口**：
+  - 单卡训练入口：`experiments/DIST/run_distill_prune_hrnet_w32_coco.sh`
+  - 配置：`experiments/DIST/hrnet_w32_distill_prune_coco_256x192.py`
+  - 训练过程中支持从 `epoch_*.pth` / `prune_step_*.pth` 断点续训（见下文“断点续训”）
+- **教师模型（PoseBH-B / ViT-MoE）加载约束**：
+  - 17 关键点时使用 strict=True 加载（避免 silent mismatch）
+  - 教师权重绝不手动改 shape（避免破坏教师泛化）；若 keypoints 数不一致，应该在学生侧/蒸馏侧做适配层而不是改教师
+  - 对于 ViT-MoE 教师，forward 需要携带 `dataset_source`（MoE gating indices），否则会出现 `NoneType has no attribute view` 的崩溃
+- **学生模型（HRNet-W32）初始化**：
+  - 使用 OpenMMLab 的 COCO top-down checkpoint：`weights/hrnet/hrnet_w32_coco_256x192.pth`
+- **蒸馏损失与训练稳定性策略**：
+  - 监督热图损失仍为主导，KD 仅做弱辅助
+  - 训练初期前 `sup_ratio_enforce_iters` 步强制 `loss_sup/total >= min_sup_ratio`，避免 KD 压制监督收敛
+- **剪枝实现与关键约束**：
+  - 仅剪 HRNet 的 stage3/stage4 通道数（stage1/stage2 完全不剪）
+  - 重要性准则支持：
+    - `bn_gamma`：对 BN gamma 的 |γ| 聚合
+    - `conv_l1`：对 conv weight 的输出通道 L1 聚合
+  - 一致性裁剪覆盖 transition / fuse_layers，避免跨分支融合产生 shape 不一致
+  - 通道数对齐采用 `round_to`（可配置，推荐 32 以平滑剪枝；64 容易产生大步长跳变）
+  - 剪枝比例 schedule 支持 `prune_ramp_steps`，用于控制达到 mid_final/high_final 的速度
+- **剪枝点验证与保护**：
+  - 剪枝点执行顺序：`val(pre-prune) -> prune -> val(post-prune)`
+  - 日志会额外打印：
+    - `Pre-prune eval epoch ...: AP=...`
+    - `Prune step ... stage3 (...) -> (...), stage4 (...) -> (...)`
+    - `Post-prune eval epoch ...: AP=...`
+  - 掉点保护：剪枝点若 AP 下跌超过阈值会触发停止（用于快速回滚与调参）
+- **检查点与日志策略**：
+  - 常规 checkpoint：`epoch_*.pth`
+  - AP best checkpoint：`best_AP_epoch_*.pth`
+  - 剪枝专用 checkpoint：`prune_step_{k}_epoch_{e}.pth`（剪枝完成后立即保存，便于回滚）
+  - 总日志：`experiments/DIST/work_dirs/DIST_all.log`（聚合所有运行日志 + 未捕获异常堆栈；非 resume 时覆写，resume 时追加）
+
+#### 断点续训（Resume）
+
+- **推荐续训方式**：从 `epoch_*.pth` 续训，保留 optimizer state（Adam 动量/方差缓存），曲线更稳定
+- **从剪枝点续训**：
+  - `prune_step_*.pth` 也可 resume，但该文件可能不包含完整 optimizer state（视保存时机而定），更接近“从该点重新开始优化器”
+- **结构恢复关键点**：
+  - 由于剪枝会改变 HRNet 结构（重建 backbone extra），resume 时会从 checkpoint meta 中恢复 `student_backbone_extra`，避免 shape mismatch
+
+#### 常见问题（Troubleshooting）
+
+- **Epoch30/40 没剪到通道**：
+  - 通常是因为剪枝比例太小且 `round_to` 量化门槛导致通道数四舍五入回原值
+  - 解决方式：增大 `prune_ramp_steps`（让剪枝更快发生）或把 `round_to=64` 放宽为 `round_to=32`（更细粒度更平滑）
+- **剪枝后 AP 出现断崖式下跌**：
+  - 常见原因：通道对齐步长过大（例如 256->192 一次跳变太大）或早期剪枝过激
+  - 解决方式：放宽 `round_to`（32）、增大 `prune_ramp_steps`、降低 high_final/mid_final 或提高蒸馏弱辅助权重
+- **DDP 崩溃（reduction / unused params）**：
+  - 剪枝阶段会重建 student 并替换参数集合，DDP reducer 不支持训练中途参数集合变化
+  - 解决方式：剪枝训练使用单进程（本阶段默认脚本已切换为单卡非 DDP）
 
 ***
 
@@ -162,7 +224,7 @@ bash experiments/CUT/run_prune_pruned40.sh
 bash experiments/CUT/run_finetune_pruned40_coco.sh
 
 # Stage3：跨架构 CNN 蒸馏
-bash experiments/DIST/run_distill.sh
+bash experiments/DIST/run_distill_prune_hrnet_w32_coco.sh
 ```
 
 > **注意**：脚本中默认激活名为 `PoseBH` 的 Conda 虚拟环境。
@@ -225,21 +287,34 @@ Stage2 的主要目的是**验证 ViT-MoE 架构的剪枝鲁棒性上限**，而
 
 #### 技术细节
 
-- 脚本：`experiments/DIST/run_distill.sh`
-- 配置：`experiments/DIST/hrnet_distill_coco.py`
-- 产物目录：`experiments/DIST/work_dirs/hrnet_distill_coco/`
+- 启动脚本：`experiments/DIST/run_distill_prune_hrnet_w32_coco.sh`
+  - 默认使用单卡非 DDP（剪枝阶段会重建 student 结构，DDP 在训练中途变更参数集合会导致 reducer 报错）
+- 训练配置：`experiments/DIST/hrnet_w32_distill_prune_coco_256x192.py`
+  - 学生初始化权重：`weights/hrnet/hrnet_w32_coco_256x192.pth`
+  - 教师加载：`weights/posebh/base.pth`（17 关键点时 strict=True 加载；教师 proto head 结构按多数据集总 keypoints 构建以匹配权重）
+- 核心实现：
+  - 蒸馏 + 剪枝封装模型：`experiments/DIST/distill_prune.py`
+  - 自定义 hooks（剪枝/掉点保护/早停）：`experiments/DIST/custom_hooks.py`
+- 产物目录：`experiments/DIST/work_dirs/hrnet_w32_distill_prune_coco_256x192/`
+  - `epoch_*.pth`：按 runtime 的 checkpoint interval 保存（包含 optimizer state）
+  - `best_AP_epoch_*.pth`：按 AP 保存 best
+  - `prune_step_{k}_epoch_{e}.pth`：每次剪枝后立即额外保存的专用 checkpoint
 - 日志：
-  - 全量：`experiments/DIST/logs/distill_hrnet_coco.log`
-  - 摘要：`experiments/DIST/logs/distill_hrnet_coco.summary.log`
+  - 单次运行日志：`experiments/DIST/work_dirs/hrnet_w32_distill_prune_coco_256x192/*.log`
+  - 总日志（汇总 + 异常堆栈）：`experiments/DIST/work_dirs/DIST_all.log`
 
 **技术细节与为什么这么做**：
 
-- 蒸馏损失包含热图对齐（hm）与原型对齐（proto）；为避免训练初期 KD 过强压制监督学习，蒸馏实现了 KD warmup 与更稳定的对齐目标；
-- 日志会打印 `BASELINE AP` 与自动计算得到的 `TARGET AP`，并在训练结束后输出“是否达标”；
+- 蒸馏损失与权重（可在 config 中调整）：
+  - 监督（学生对 GT 热图）：`heatmap_loss_weight`
+  - 蒸馏（热图 KL）：`kd_hm_weight`
+  - 蒸馏（proto MSE）：`kd_proto_weight`
+  - 训练初期为避免 KD 压制监督，前 `sup_ratio_enforce_iters` 步强制 `loss_sup/total >= min_sup_ratio`
+- 剪枝与评估：
+  - epoch30 起每 10 轮剪一次，并在剪枝点先跑一次 `val(pre-prune)`，再剪枝并立刻跑 `val(post-prune)` 用于掉点监控
+  - 当单次剪枝导致 AP 下跌超过阈值（默认 0.3%）时会触发停止/保护（便于快速回滚与调参）
 - **早停机制**：
-  - 配置了 `EarlyStopByAPHook` 钩子，当模型性能不再提升时自动停止训练
-  - 早停条件：如果连续 2 个验证周期（每 10 轮验证一次）AP 提升不超过 0.001，则停止训练
-  - 早停机制可以避免过拟合，节省计算资源，同时确保模型达到稳定状态
+  - 每 10 轮验证一次，若连续 2 次验证 AP 提升 < 0.001 则早停
 
 #### 达标判定
 
@@ -296,4 +371,3 @@ Stage2 的主要目的是**验证 ViT-MoE 架构的剪枝鲁棒性上限**，而
 
 - `--log-dir <dir>`
 - `--log-file <path>`
-

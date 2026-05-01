@@ -7,10 +7,6 @@ from torch.cuda import Event
 
 @HOOKS.register_module()
 class KeepMultiplesOfTenCheckpointHook(Hook):
-    """
-    自定义 Hook：在每 10 个 Epoch 验证结束后，清理前面的 9 个 epoch 的权重。
-    例如：第 30 个 epoch 结束后，删除 epoch_21.pth 到 epoch_29.pth，仅保留 epoch_30.pth。
-    """
     def __init__(self, keep_interval=10):
         self.keep_interval = keep_interval
 
@@ -32,10 +28,6 @@ class KeepMultiplesOfTenCheckpointHook(Hook):
 
 @HOOKS.register_module()
 class EarlyStopByAPHook(Hook):
-    """
-    早停 Hook：当模型性能不再提升时自动停止训练。
-    基于验证 AP，如果连续多个验证周期 AP 提升不超过 min_delta，则停止训练。
-    """
     def __init__(self, baseline_ap=0.7728, target_loss_pct=2.0, min_delta=0.001, patience=2, interval=10, monitor='AP'):
         self.baseline_ap = baseline_ap
         self.target_loss_pct = target_loss_pct
@@ -76,9 +68,6 @@ class EarlyStopByAPHook(Hook):
 
 @HOOKS.register_module()
 class FPSBenchmarkHook(Hook):
-    """
-    FPS 基准测试 Hook：在验证时测量模型推理速度。
-    """
     def __init__(self, interval=10, num_warmup=2, num_iters=10, log_key='fps_val'):
         self.interval = interval
         self.num_warmup = num_warmup

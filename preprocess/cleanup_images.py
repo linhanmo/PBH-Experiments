@@ -10,7 +10,7 @@ def clean_dataset(image_dir, val_json_paths, image_key='file_name'):
                 if 'images' in data:
                     for img in data['images']:
                         keep_images.add(img[image_key])
-                elif isinstance(data, list): # mpii_val might be a list?
+                elif isinstance(data, list): 
                     for item in data:
                         if 'image' in item:
                             keep_images.add(item['image'])
@@ -32,7 +32,6 @@ def clean_dataset(image_dir, val_json_paths, image_key='file_name'):
                     deleted += 1
     print(f"Deleted {deleted} unused images from {image_dir}")
 
-# AP-10K
 clean_dataset(
     '/home/lin/PoseBH/dataset/ap-10k/data',
     ['/home/lin/PoseBH/dataset/ap-10k/annotations/ap10k-val-split1.json',
@@ -40,13 +39,11 @@ clean_dataset(
      '/home/lin/PoseBH/dataset/ap-10k/annotations/ap10k-val-split3.json']
 )
 
-# OCHuman
 clean_dataset(
     '/home/lin/PoseBH/preprocess/ochuman/images',
     ['/home/lin/PoseBH/preprocess/ochuman/annotations/val.json', '/home/lin/PoseBH/dataset/OCHuman/ochuman.json'] # wait, ochuman.json has val?
 )
 
-# MPII
 clean_dataset(
     '/home/lin/PoseBH/preprocess/mpii/images',
     ['/home/lin/PoseBH/preprocess/mpii/annotations/mpii_val.json']

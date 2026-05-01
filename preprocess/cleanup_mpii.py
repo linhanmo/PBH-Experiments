@@ -10,7 +10,7 @@ def clean_dataset(image_dir, val_json_paths, image_key='file_name'):
                 if 'images' in data:
                     for img in data['images']:
                         keep_images.add(img[image_key])
-                elif isinstance(data, list): # mpii_val might be a list?
+                elif isinstance(data, list): 
                     for item in data:
                         if 'image' in item:
                             keep_images.add(item['image'])

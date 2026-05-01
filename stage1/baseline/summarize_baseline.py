@@ -1,6 +1,3 @@
-"""
-汇总并统计基线模型的评估结果。读取各数据集的评估日志文件并提取 AP/AR 等关键指标，最终生成汇总 JSON 报告。
-"""
 import argparse
 import csv
 import json

@@ -1,7 +1,3 @@
-"""
-可剪枝的 ViT-MoE 模型定义。
-与原始 ViTMoE 结构完全一致，支持通过 mlp_hidden_dims 参数进行剪枝。
-"""
 import math
 from functools import partial
 
@@ -16,8 +12,6 @@ from mmpose.models.builder import BACKBONES
 
 
 class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -76,7 +70,6 @@ class MoEMlp(nn.Module):
         shared_x = self.fc2(x)
         indices = indices.view(-1, 1, 1)
 
-        # to support ddp training
         for i in range(self.num_expert):
             selectedIndex = (indices == i)
             current_x = self.experts[i](x) * selectedIndex
@@ -112,7 +105,7 @@ class Attention(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x)
         qkv = qkv.reshape(B, N, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv[0], qkv[1], qkv[2]   
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
@@ -141,7 +134,6 @@ class Block(nn.Module):
             attn_drop=attn_drop, proj_drop=drop, attn_head_dim=attn_head_dim
             )
 
-        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.mlp = MoEMlp(num_expert=num_expert, in_features=dim, hidden_features=mlp_hidden_dim, 
@@ -155,8 +147,6 @@ class Block(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    """ Image to Patch Embedding
-    """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, ratio=1):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -180,17 +170,6 @@ class PatchEmbed(nn.Module):
 
 
 def get_abs_pos(abs_pos, h, w, ori_h, ori_w, has_cls_token=True):
-    """
-    Calculate absolute positional embeddings. If needed, resize embeddings and remove cls_token
-        dimension for the original embeddings.
-    Args:
-        abs_pos (Tensor): absolute positional embeddings with (1, num_position, C).
-        has_cls_token (bool): If true, has 1 embedding in abs_pos for cls token.
-        hw (Tuple): size of input image tokens.
-
-    Returns:
-        Absolute positional embeddings after processing with shape (1, H, W, C)
-    """
     cls_token = None
     B, L, C = abs_pos.shape
     if has_cls_token:
@@ -225,11 +204,10 @@ class ViTMoEPrunable(BaseBackbone):
                  num_expert=1, part_features=None,
                  mlp_hidden_dims=None,
                  ):
-        # Protect mutable default arguments
         super(ViTMoEPrunable, self).__init__()
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
         self.num_classes = num_classes
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = embed_dim 
         self.frozen_stages = frozen_stages
         self.use_checkpoint = use_checkpoint
         self.patch_padding = patch_padding
@@ -253,7 +231,7 @@ class ViTMoEPrunable(BaseBackbone):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
 
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  
 
         self.blocks = nn.ModuleList([
             Block(
@@ -271,7 +249,6 @@ class ViTMoEPrunable(BaseBackbone):
         self._freeze_stages()
 
     def _freeze_stages(self):
-        """Freeze parameters."""
         if self.frozen_stages >= 0:
             self.patch_embed.eval()
             for param in self.patch_embed.parameters():
@@ -308,11 +285,6 @@ class ViTMoEPrunable(BaseBackbone):
                     param.requires_grad = False
 
     def init_weights(self, pretrained=None):
-        """Initialize the weights in backbone.
-        Args:
-            pretrained (str, optional): Path to pre-trained weights.
-                Defaults to None.
-        """
         res = super().init_weights(pretrained, patch_padding=self.patch_padding, part_features=self.part_features)
 
         if pretrained is None:
@@ -340,8 +312,6 @@ class ViTMoEPrunable(BaseBackbone):
         x, (Hp, Wp) = self.patch_embed(x)
 
         if self.pos_embed is not None:
-            # fit for multiple GPU training
-            # since the first element for pos embed (sin-cos manner) is zero, it will cause no difference
             x = x + self.pos_embed[:, 1:] + self.pos_embed[:, :1]
 
         indices = torch.zeros(B, device=x.device, dtype=torch.long) if dataset_source is None else dataset_source
@@ -363,15 +333,11 @@ class ViTMoEPrunable(BaseBackbone):
         return x
 
     def train(self, mode=True):
-        """Convert the model into training mode."""
         super().train(mode)
         self._freeze_stages()
 
 
 class HybridEmbed(nn.Module):
-    """ CNN Feature Map Embedding
-    Extract feature map from CNN, flatten, project to embedding dim.
-    """
     def __init__(self, backbone, img_size=224, feature_size=None, in_chans=3, embed_dim=768):
         super().__init__()
         assert isinstance(backbone, nn.Module)
